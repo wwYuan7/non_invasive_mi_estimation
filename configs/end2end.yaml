@@ -1,0 +1,127 @@
+# 端到端训练配置文件
+
+# 数据配置
+data:
+  dataset: "mscmr"  # mscmr, emidec, acdc
+  data_root: "data/processed/mscmr"
+  train_split: 0.8
+  val_split: 0.1
+  test_split: 0.1
+  batch_size: 4
+  num_workers: 4
+  img_size: [256, 256]
+  
+  # 数据增强
+  augmentation:
+    enabled: true
+    random_flip: true
+    random_rotation: 15  # degrees
+    random_scale: [0.9, 1.1]
+    random_brightness: 0.2
+    random_contrast: 0.2
+
+# 模型配置
+model:
+  # 运动估计网络
+  motion_net:
+    img_size: [256, 256]
+    pretrained: null  # 预训练权重路径
+  
+  # 配准网络
+  registration_net:
+    img_size: [256, 256]
+    enc_channels: [16, 32, 64, 128, 256]
+    pretrained: null
+  
+  # 分割网络
+  segmentation_net:
+    in_channels: 4  # CMR + motion_x + motion_y + strain
+    out_channels: 1
+    init_features: 64
+    pretrained: null
+
+# 训练配置
+training:
+  # 优化器
+  optimizer:
+    type: "adam"  # adam, sgd, adamw
+    lr: 0.0001
+    weight_decay: 0.0001
+    betas: [0.9, 0.999]
+  
+  # 学习率调度器
+  scheduler:
+    type: "cosine"  # step, cosine, plateau
+    T_max: 100
+    eta_min: 0.000001
+  
+  # 训练参数
+  epochs: 100
+  save_interval: 10  # 每N个epoch保存一次
+  eval_interval: 5   # 每N个epoch评估一次
+  
+  # 损失函数权重
+  loss_weights:
+    motion_photo: 1.0
+    motion_smooth: 0.1
+    registration_sim: 1.0
+    registration_smooth: 0.1
+    segmentation_dice: 0.5
+    segmentation_focal: 0.5
+  
+  # 多阶段训练
+  multi_stage:
+    enabled: true
+    # 阶段1: 预训练运动估计
+    stage1:
+      epochs: 30
+      freeze_modules: ["registration_net", "segmentation_net"]
+    # 阶段2: 预训练配准
+    stage2:
+      epochs: 30
+      freeze_modules: ["motion_net", "segmentation_net"]
+    # 阶段3: 训练分割
+    stage3:
+      epochs: 30
+      freeze_modules: ["motion_net", "registration_net"]
+    # 阶段4: 端到端微调
+    stage4:
+      epochs: 10
+      freeze_modules: []
+
+# 评估配置
+evaluation:
+  metrics:
+    - "dice"
+    - "hausdorff"
+    - "asd"  # average surface distance
+    - "sensitivity"
+    - "specificity"
+  
+  save_predictions: true
+  visualize: true
+
+# 日志配置
+logging:
+  log_dir: "logs"
+  tensorboard: true
+  wandb:
+    enabled: false
+    project: "mi_estimation"
+    entity: null
+  
+  # 保存配置
+  checkpoint_dir: "checkpoints"
+  save_best_only: true
+  monitor: "val_dice"
+  mode: "max"
+
+# 硬件配置
+hardware:
+  device: "cuda"  # cuda, cpu
+  gpu_ids: [0]
+  mixed_precision: true  # 混合精度训练
+  cudnn_benchmark: true
+
+# 随机种子
+seed: 42
