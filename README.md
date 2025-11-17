@@ -90,31 +90,34 @@ ACDC数据集包含CMR cine序列和心室分割标注，可用于预训练运�
 
 ## 使用方法
 
-### 训练
+### 模型训练与权重
 
-#### 阶段一：预训练运动估计模块
+#### 权重文件
 
-```bash
-python src/train_motion.py --config configs/motion_estimation.yaml
-```
+由于模型权重文件较大，未直接包含在Git仓库中。请参考 `checkpoints/README.md` 文件了解如何生成或训练权重。
 
-#### 阶段二：预训练配准模块
+#### 训练脚本
 
-```bash
-python src/train_registration.py --config configs/registration.yaml
-```
+项目提供了三个独立的训练脚本，用于训练各个模块：
 
-#### 阶段三：训练心梗分割模块
+- `src/train_motion.py`: 训练运动估计模块
+- `src/train_registration.py`: 训练配准模块
+- `src/train_segmentation.py`: 训练分割模块
 
-```bash
-python src/train_segmentation.py --config configs/segmentation.yaml
-```
-
-#### 端到端联合训练
+**训练命令示例**:
 
 ```bash
-python src/train_end2end.py --config configs/end2end.yaml
+# 1. 训练运动估计模块
+python src/train_motion.py --epochs 100
+
+# 2. 训练配准模块
+python src/train_registration.py --epochs 100
+
+# 3. 训练分割模块（依赖于预训练的运动模型）
+python src/train_segmentation.py --epochs 100 --motion_checkpoint checkpoints/motion_estimation/best_motion_model.pth
 ```
+
+更多训练参数请查看各训练脚本的帮助信息 (`--help`)。
 
 ### 推理
 
@@ -123,7 +126,7 @@ python src/inference.py \
     --input path/to/cmr/image.nii.gz \
     --myocardium_mask path/to/myocardium/mask.nii.gz \
     --output path/to/output/mi_segmentation.nii.gz \
-    --checkpoint checkpoints/best_model.pth
+    --checkpoint checkpoints/segmentation/best_segmentation_model.pth
 ```
 
 ### 评估
