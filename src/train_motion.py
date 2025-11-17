@@ -34,15 +34,24 @@ def train_one_epoch(model, dataloader, optimizer, device, epoch):
         # 获取数据
         cmr = batch['cmr'].to(device)  # (B, T, H, W)
         
-        # 只使用前两帧进行运动估计
-        frame1 = cmr[:, 0:1, :, :]  # (B, 1, H, W)
-        frame2 = cmr[:, 1:2, :, :]  # (B, 1, H, W)
+        # 自动检测T维度，选择ED和ES帧
+        # ED帧通常是第一帧，ES帧通常在中间
+        T = cmr.shape[1]
+        frame1 = cmr[:, 0:1, :, :]  # ED帧 (B, 1, H, W)
+        frame2 = cmr[:, T//2:T//2+1, :, :]  # ES帧 (B, 1, H, W)
         
         # 前向传播
-        motion_field, warped_frame, _ = model(frame1, frame2)
+        motion_field, warped_frame, multi_scale_flows = model(frame1, frame2)
         
-        # 计算损失 (简化版：只使用L1损失)
-        loss = nn.functional.l1_loss(frame1, frame2)
+        # 计算损失：使用warped_frame和frame2之间的相似度
+        # 目标是让warped_frame尽可能接近frame2
+        photometric_loss = nn.functional.l1_loss(warped_frame, frame2)
+        
+        # 添加平滑正则化，防止运动场过于复杂
+        smoothness_loss = compute_smoothness_loss(motion_field)
+        
+        # 总损失
+        loss = photometric_loss + 0.1 * smoothness_loss
         
         # 反向传播
         optimizer.zero_grad()
@@ -50,9 +59,19 @@ def train_one_epoch(model, dataloader, optimizer, device, epoch):
         optimizer.step()
         
         total_loss += loss.item()
-        pbar.set_postfix({'loss': loss.item()})
+        pbar.set_postfix({'loss': loss.item(), 'photo': photometric_loss.item(), 'smooth': smoothness_loss.item()})
     
     return total_loss / len(dataloader)
+
+
+def compute_smoothness_loss(flow):
+    """计算运动场的平滑损失"""
+    # 计算水平和垂直方向的梯度
+    dx = flow[:, :, :, 1:] - flow[:, :, :, :-1]
+    dy = flow[:, :, 1:, :] - flow[:, :, :-1, :]
+    
+    # L1范数
+    return torch.mean(torch.abs(dx)) + torch.mean(torch.abs(dy))
 
 
 def validate(model, dataloader, device):
@@ -63,11 +82,16 @@ def validate(model, dataloader, device):
     with torch.no_grad():
         for batch in tqdm(dataloader, desc='Validating'):
             cmr = batch['cmr'].to(device)
+            
+            # 自动检测T维度
+            T = cmr.shape[1]
             frame1 = cmr[:, 0:1, :, :]
-            frame2 = cmr[:, 1:2, :, :]
+            frame2 = cmr[:, T//2:T//2+1, :, :]
             
             motion_field, warped_frame, _ = model(frame1, frame2)
-            loss = nn.functional.l1_loss(frame1, frame2)
+            photometric_loss = nn.functional.l1_loss(warped_frame, frame2)
+            smoothness_loss = compute_smoothness_loss(motion_field)
+            loss = photometric_loss + 0.1 * smoothness_loss
             
             total_loss += loss.item()
     

@@ -24,6 +24,13 @@ def set_seed(seed):
     torch.cuda.manual_seed_all(seed)
 
 
+def compute_smoothness_loss(flow):
+    """计算变形场的平滑损失"""
+    dx = flow[:, :, :, 1:] - flow[:, :, :, :-1]
+    dy = flow[:, :, 1:, :] - flow[:, :, :-1, :]
+    return torch.mean(torch.abs(dx)) + torch.mean(torch.abs(dy))
+
+
 def train_one_epoch(model, dataloader, optimizer, device, epoch):
     """训练一个epoch"""
     model.train()
@@ -35,14 +42,21 @@ def train_one_epoch(model, dataloader, optimizer, device, epoch):
         cmr = batch['cmr'].to(device)  # (B, T, H, W)
         lge = batch['lge'].to(device)  # (B, 1, H, W)
         
-        # 使用CMR的第一帧
+        # 使用CMR的第一帧 (ED帧)
         cmr_frame = cmr[:, 0:1, :, :]  # (B, 1, H, W)
         
-        # 前向传播
+        # 前向传播: 将LGE配准到CMR
         warped_lge, flow = model(lge, cmr_frame)
         
-        # 计算损失 (简化版：只使用L1损失)
-        loss = nn.functional.l1_loss(warped_lge, cmr_frame)
+        # 计算损失
+        # 1. 图像相似度损失
+        similarity_loss = nn.functional.l1_loss(warped_lge, cmr_frame)
+        
+        # 2. 平滑正则化
+        smoothness_loss = compute_smoothness_loss(flow)
+        
+        # 总损失
+        loss = similarity_loss + 1.0 * smoothness_loss
         
         # 反向传播
         optimizer.zero_grad()
@@ -50,7 +64,7 @@ def train_one_epoch(model, dataloader, optimizer, device, epoch):
         optimizer.step()
         
         total_loss += loss.item()
-        pbar.set_postfix({'loss': loss.item()})
+        pbar.set_postfix({'loss': loss.item(), 'sim': similarity_loss.item(), 'smooth': smoothness_loss.item()})
     
     return total_loss / len(dataloader)
 
@@ -67,7 +81,9 @@ def validate(model, dataloader, device):
             cmr_frame = cmr[:, 0:1, :, :]
             
             warped_lge, flow = model(lge, cmr_frame)
-            loss = nn.functional.l1_loss(warped_lge, cmr_frame)
+            similarity_loss = nn.functional.l1_loss(warped_lge, cmr_frame)
+            smoothness_loss = compute_smoothness_loss(flow)
+            loss = similarity_loss + 1.0 * smoothness_loss
             
             total_loss += loss.item()
     
