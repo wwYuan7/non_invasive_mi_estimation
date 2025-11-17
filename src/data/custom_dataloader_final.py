@@ -36,12 +36,14 @@ class CustomMIDatasetFinal(Dataset):
         case_list: List[str],
         mode: str = 'segmentation',
         img_size: Tuple[int, int] = (256, 256),
+        target_frames: int = 40,
         transform=None
     ):
         self.data_root = Path(data_root)
         self.case_list = case_list
         self.mode = mode
         self.img_size = img_size
+        self.target_frames = target_frames  # 目标帧数
         self.transform = transform
         
         # 构建切片索引
@@ -107,6 +109,34 @@ class CustomMIDatasetFinal(Dataset):
         img = img.astype(np.float32)
         min_val, max_val = img.min(), img.max()
         return (img - min_val) / (max_val - min_val + 1e-8)
+    
+    def _temporal_interpolate(self, sequence: np.ndarray, target_frames: int) -> np.ndarray:
+        """
+        对CMR序列进行时间插值，统一到目标帧数
+        
+        Args:
+            sequence: (T, H, W) 原始序列
+            target_frames: 目标帧数
+        
+        Returns:
+            (target_frames, H, W) 插值后的序列
+        """
+        from scipy.ndimage import zoom
+        
+        current_frames = sequence.shape[0]
+        if current_frames == target_frames:
+            return sequence
+        
+        # 计算时间维度的缩放因子
+        zoom_factor = target_frames / current_frames
+        
+        # 对时间维度进行插值，空间维度保持不变
+        zoom_factors = [zoom_factor, 1.0, 1.0]  # (T, H, W)
+        
+        # 使用线性插值 (order=1)
+        interpolated = zoom(sequence, zoom_factors, order=1)
+        
+        return interpolated
 
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
         case_id, slice_id = self.slice_index[idx]
@@ -118,14 +148,22 @@ class CustomMIDatasetFinal(Dataset):
             cmr_seq = self._resize(cmr_seq)
             cmr_seq = self._normalize(cmr_seq)
             
-            # 提取ED和ES帧
-            T = cmr_seq.shape[0]
-            cine_ed = cmr_seq[0]      # (H, W)
-            cine_es = cmr_seq[T // 2] # (H, W)
+            # 时间插值到目标帧数
+            cmr_seq = self._temporal_interpolate(cmr_seq, self.target_frames)
             
-            # 2. 加载CMR心肌掩模 (2D切片)
+            # 提取ED和ES帧
+            cine_ed = cmr_seq[0]                      # ED帧 (第一帧)
+            cine_es = cmr_seq[self.target_frames // 2] # ES帧 (中间帧)
+            
+            # 2. 加载CMR心肌掩模 (可能是多帧的，只取第一帧)
             cmr_mask_path = self.data_root / 'labels' / 'cmr' / 'cmr_Myo_mask' / case_id / f'{slice_id}.nii.gz'
-            myocardium_mask = self._load_nifti(cmr_mask_path).squeeze()
+            myocardium_mask = self._load_nifti(cmr_mask_path)
+            
+            # 如果是多帧的，只取第一帧
+            if myocardium_mask.ndim == 3:
+                myocardium_mask = myocardium_mask[0]  # 取第一帧
+            
+            myocardium_mask = myocardium_mask.squeeze()
             myocardium_mask = self._resize(myocardium_mask, is_mask=True)
             myocardium_mask = (myocardium_mask > 0.5).astype(np.float32)
 
@@ -183,6 +221,7 @@ def get_custom_dataloader_final(
     mode: str = 'segmentation',
     batch_size: int = 4,
     img_size: Tuple[int, int] = (256, 256),
+    target_frames: int = 40,
     shuffle: bool = True,
     num_workers: int = 4,
     transform=None
@@ -193,6 +232,7 @@ def get_custom_dataloader_final(
         case_list=case_list,
         mode=mode,
         img_size=img_size,
+        target_frames=target_frames,
         transform=transform
     )
     return DataLoader(
