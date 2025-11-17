@@ -39,7 +39,7 @@ def train_one_epoch(model, dataloader, optimizer, device, epoch):
         frame2 = cmr[:, 1:2, :, :]  # (B, 1, H, W)
         
         # 前向传播
-        motion_field, _ = model(frame1, frame2)
+        motion_field, warped_frame, _ = model(frame1, frame2)
         
         # 计算损失 (简化版：只使用L1损失)
         loss = nn.functional.l1_loss(frame1, frame2)
@@ -66,7 +66,7 @@ def validate(model, dataloader, device):
             frame1 = cmr[:, 0:1, :, :]
             frame2 = cmr[:, 1:2, :, :]
             
-            motion_field, _ = model(frame1, frame2)
+            motion_field, warped_frame, _ = model(frame1, frame2)
             loss = nn.functional.l1_loss(frame1, frame2)
             
             total_loss += loss.item()
