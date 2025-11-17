@@ -73,16 +73,12 @@ echo -e "${YELLOW}可以使用 Ctrl+C 中断训练${NC}\n"
 python3 src/train_segmentation.py \
     --data_root "$DATA_ROOT" \
     --splits_file "$SPLITS_FILE" \
-    --motion_checkpoint "$MOTION_CHECKPOINT" \
-    --registration_checkpoint "$REG_CHECKPOINT" \
     --epochs $EPOCHS \
     --batch_size $BATCH_SIZE \
     --lr $LEARNING_RATE \
     --num_workers $NUM_WORKERS \
-    --alpha_dice $ALPHA_DICE \
     --checkpoint_dir checkpoints/segmentation \
     --log_dir logs/segmentation \
-    --save_freq 10 \
     --val_freq 5
 
 if [ $? -ne 0 ]; then

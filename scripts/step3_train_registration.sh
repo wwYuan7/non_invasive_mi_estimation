@@ -59,10 +59,8 @@ python3 src/train_registration.py \
     --batch_size $BATCH_SIZE \
     --lr $LEARNING_RATE \
     --num_workers $NUM_WORKERS \
-    --lambda_smooth $LAMBDA_SMOOTH \
     --checkpoint_dir checkpoints/registration \
     --log_dir logs/registration \
-    --save_freq 10 \
     --val_freq 5
 
 if [ $? -ne 0 ]; then

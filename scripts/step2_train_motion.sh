@@ -59,7 +59,6 @@ python3 src/train_motion.py \
     --num_workers $NUM_WORKERS \
     --checkpoint_dir checkpoints/motion \
     --log_dir logs/motion \
-    --save_freq 10 \
     --val_freq 5
 
 if [ $? -ne 0 ]; then
