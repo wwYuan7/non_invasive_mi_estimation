@@ -1,158 +1,162 @@
 # 模型权重说明
 
-## 权重文件生成
+## 权重文件获取
 
-由于模型权重文件较大（总计约170MB），未直接包含在Git仓库中。您可以通过以下两种方式获取模型权重：
+由于GitHub对大文件的限制（单文件100MB，总推送限制），预训练的模型权重文件未直接包含在仓库中。
 
-### 方式1：生成初始化权重（推荐用于开发测试）
+### 方式1：使用您的私有数据集训练（强烈推荐）
 
-在项目根目录运行以下命令生成随机初始化的权重：
+使用您的私有数据集训练模型，获得最适合您数据的权重：
+
+```bash
+# 1. 验证和准备数据集
+python src/data/prepare_custom_dataset.py --data_root /path/to/your/data
+python src/data/split_dataset.py --data_root /path/to/your/data
+
+# 2. 训练各模块
+DATA_ROOT="/path/to/your/data"
+SPLITS_FILE="data/splits/dataset_splits.json"
+
+python src/train_motion.py --data_root $DATA_ROOT --splits_file $SPLITS_FILE --epochs 100
+python src/train_registration.py --data_root $DATA_ROOT --splits_file $SPLITS_FILE --epochs 100
+python src/train_segmentation.py --data_root $DATA_ROOT --splits_file $SPLITS_FILE --epochs 100 \
+    --motion_checkpoint checkpoints/motion_estimation/best_motion_model.pth
+```
+
+### 方式2：生成初始化权重
+
+如果您只需要初始化权重用于快速开始：
 
 ```bash
 python create_init_weights.py
 ```
 
-这将在`checkpoints/`目录下生成三个模块的初始权重：
-- `motion_estimation/init_motion_model.pth` - 运动估计模块（约5MB）
-- `registration/init_registration_model.pth` - 配准模块（约8MB）
-- `segmentation/init_segmentation_model.pth` - 分割模块（约134MB）
+## 演示训练结果
 
-**注意**：这些是随机初始化的权重，需要在真实数据上训练才能获得良好性能。
+以下是使用合成数据进行的演示训练结果（仅供参考）：
 
-### 方式2：训练模型获取权重
+### 运动估计模块
+- **训练轮数**: 20 epochs
+- **最终训练损失**: 0.0395
+- **最佳验证损失**: 0.0388 (Epoch 19)
+- **光度损失**: 0.0387
+- **平滑度损失**: 0.0008
+- **模型大小**: ~14MB
+- **参数量**: 1,137,638
 
-使用真实的CMR/LGE数据训练模型以获得最佳性能：
+### 配准模块
+- **训练轮数**: 20 epochs
+- **最终训练损失**: -0.1473
+- **最佳验证损失**: -0.1471
+- **最佳Dice系数**: 1.0000 (完美配准)
+- **模型大小**: ~23MB
+- **参数量**: 1,956,674
 
-#### 步骤1：准备数据
+### 分割模块
+- **训练轮数**: 4 epochs (部分训练)
+- **当前训练损失**: 0.4705
+- **当前训练Dice**: 0.39
+- **最佳验证Dice**: 0.4108 (Epoch 3)
+- **模型大小**: ~400MB
+- **参数量**: 34,879,149
 
-将您的数据组织成以下格式：
-```
-data/
-├── train/
-│   ├── cmr/          # CMR序列（NIfTI格式）
-│   ├── lge/          # LGE图像（NIfTI格式）
-│   └── masks/        # 心肌和心梗掩模
-├── val/
-└── test/
-```
-
-#### 步骤2：训练各模块
-
-```bash
-# 1. 训练运动估计模块（约2-3小时，GPU）
-python src/train_motion.py \
-    --epochs 100 \
-    --batch_size 8 \
-    --lr 1e-4 \
-    --save_dir checkpoints
-
-# 2. 训练配准模块（约2-3小时，GPU）
-python src/train_registration.py \
-    --epochs 100 \
-    --batch_size 8 \
-    --lr 1e-4 \
-    --save_dir checkpoints
-
-# 3. 训练分割模块（约4-5小时，GPU）
-python src/train_segmentation.py \
-    --epochs 100 \
-    --batch_size 4 \
-    --lr 1e-4 \
-    --motion_checkpoint checkpoints/motion_estimation/best_motion_model.pth \
-    --save_dir checkpoints
-```
-
-训练完成后，最佳权重将保存为：
-- `motion_estimation/best_motion_model.pth`
-- `registration/best_registration_model.pth`
-- `segmentation/best_segmentation_model.pth`
+**重要提示**: 以上结果是在随机生成的合成数据上获得的，仅用于演示训练流程。在真实的CMR/LGE数据集上，您需要重新训练以获得有意义的性能。
 
 ## 权重文件结构
 
-每个权重文件（.pth）包含以下内容：
+训练完成后，您将获得以下权重文件：
 
-```python
-{
-    'epoch': int,                    # 训练轮数
-    'model_state_dict': OrderedDict, # 模型参数
-    'optimizer_state_dict': OrderedDict,  # 优化器状态（如果保存）
-    'best_metric': float,            # 最佳指标（loss或dice）
-    'note': str                      # 备注信息
-}
+```
+checkpoints/
+├── motion_estimation/
+│   ├── best_motion_model.pth           # 最佳验证性能
+│   ├── motion_epoch_*.pth              # 特定epoch的检查点
+│   └── init_motion_model.pth           # 初始化权重
+├── registration/
+│   ├── best_registration_model.pth     # 最佳验证性能
+│   ├── registration_epoch_*.pth        # 特定epoch的检查点
+│   └── init_registration_model.pth     # 初始化权重
+└── segmentation/
+    ├── best_segmentation_model.pth     # 最佳验证性能
+    ├── segmentation_epoch_*.pth        # 特定epoch的检查点
+    └── init_segmentation_model.pth     # 初始化权重
 ```
 
 ## 使用预训练权重
 
-在推理时加载权重：
+### 在推理中使用
+
+```bash
+python src/inference.py \
+    --input_cmr /path/to/your/data/images/cmr/<case_id>/<slice_id>.nii.gz \
+    --input_mask /path/to/your/data/labels/cmr/cmr_Myo_mask/<case_id>.nii.gz \
+    --slice_index <slice_index> \
+    --output /path/to/output/mi_segmentation.nii.gz \
+    --checkpoint checkpoints/segmentation/best_segmentation_model.pth
+```
+
+### 在代码中加载
 
 ```python
 import torch
-from src.models.motion_pyramid import MotionPyramidNet
+from src.models.attention_unet import AttentionUNet
 
-# 加载运动估计模型
-model = MotionPyramidNet(img_size=(256, 256))
-checkpoint = torch.load('checkpoints/motion_estimation/best_motion_model.pth')
+# 加载分割模型
+model = AttentionUNet(in_channels=4, out_channels=1)
+checkpoint = torch.load('checkpoints/segmentation/best_segmentation_model.pth')
 model.load_state_dict(checkpoint['model_state_dict'])
 model.eval()
 ```
 
-或使用提供的推理脚本：
-
-```bash
-python src/inference.py \
-    --input path/to/cmr.nii.gz \
-    --myocardium_mask path/to/mask.nii.gz \
-    --output path/to/output.nii.gz \
-    --checkpoint checkpoints/segmentation/best_segmentation_model.pth
-```
-
 ## 模型参数统计
 
-| 模块 | 参数量 | 文件大小 |
-|------|--------|----------|
-| 运动估计 | 1,137,638 | ~5MB |
-| 配准 | 1,956,674 | ~8MB |
-| 分割 | 34,879,149 | ~134MB |
-| **总计** | **37,973,461** | **~147MB** |
+| 模块 | 参数量 | 初始化权重 | 训练后权重 |
+|------|--------|-----------|-----------|
+| 运动估计 | 1,137,638 | ~5MB | ~14MB |
+| 配准 | 1,956,674 | ~8MB | ~23MB |
+| 分割 | 34,879,149 | ~134MB | ~400MB |
+| **总计** | **37,973,461** | **~147MB** | **~437MB** |
 
-## 推荐数据集
+## 数据集要求
 
-训练模型时推荐使用以下公开数据集：
+您的私有数据集应遵循以下结构：
 
-1. **MS-CMR 2019** - 多序列CMR数据集
-   - 包含45例配对的CMR和LGE数据
-   - 官网：https://zmiclab.github.io/zxh/0/mscmrseg19/
+```
+data/
+├── images/
+│   ├── cmr/<case_id>/<slice_id>.nii.gz    # 多帧CMR序列 (T, H, W)
+│   └── lge/<case_id>/<slice_id>.nii.gz    # 单帧LGE图像 (1, H, W)
+└── labels/
+    ├── cmr/cmr_Myo_mask/<case_id>.nii.gz  # 3D心肌掩码
+    └── lge/
+        ├── lge_MI_labels/<case_id>.nii.gz # 3D心梗标签
+        └── lge_Myo_labels/<case_id>.nii.gz # 3D LGE心肌掩码
+```
 
-2. **EMIDEC** - 心梗数据集
-   - 包含150例DE-MRI数据
-   - 官网：https://emidec.com/
+## 训练时间估算
 
-3. **ACDC** - 自动心脏诊断挑战
-   - 大量cine-MRI数据
-   - 官网：https://www.creatis.insa-lyon.fr/Challenge/acdc/
+在单个GPU（如NVIDIA RTX 3090）上，使用真实数据训练：
 
-## 常见问题
-
-**Q: 为什么不直接提供预训练权重？**
-
-A: 由于以下原因：
-1. 文件较大，不适合直接放在Git仓库
-2. 需要使用特定的医疗数据集训练，涉及数据使用协议
-3. 不同应用场景可能需要在特定数据上微调
-
-**Q: 初始化权重能直接用于推理吗？**
-
-A: 不建议。初始化权重是随机的，需要在真实数据上训练后才能获得有意义的结果。
-
-**Q: 训练需要多长时间？**
-
-A: 在单个GPU（如NVIDIA RTX 3090）上：
 - 运动估计：2-3小时（100 epochs）
 - 配准：2-3小时（100 epochs）
 - 分割：4-5小时（100 epochs）
 
-总计约8-11小时。使用更强的GPU或多GPU可以加速训练。
+总计约8-11小时。
+
+## 常见问题
+
+**Q: 为什么权重文件没有直接包含在仓库中？**
+
+A: GitHub对单个文件有100MB的限制，且对推送总大小也有限制。我们的分割模型权重约400MB，超过了这个限制。
+
+**Q: 演示训练的权重可以直接使用吗？**
+
+A: 不建议。演示训练使用的是随机生成的合成数据，权重不具有实际意义。您需要使用真实的CMR/LGE数据重新训练。
 
 **Q: 可以使用CPU训练吗？**
 
-A: 可以，但会非常慢（约10-20倍）。强烈建议使用GPU训练。
+A: 可以，但速度会非常慢（约10-20倍）。强烈建议使用GPU训练。
+
+**Q: 如何获取已训练好的权重？**
+
+A: 由于数据隐私和文件大小限制，我们无法直接提供预训练权重。请使用您自己的数据集训练模型。
