@@ -56,16 +56,15 @@ class UNet(nn.Module):
         for encoder in self.encoders:
             x = encoder(x)
             encoder_features.append(x)
-            if x.shape != encoder_features[-1].shape:
-                x = F.max_pool2d(x, 2)
+            x = F.max_pool2d(x, 2)
         
         # 解码路径
-        encoder_features = encoder_features[::-1]  # 反转顺序
+        encoder_features = encoder_features[::-1][1:]  # 反转并移除最后一层（已经在x中）
         for i, decoder in enumerate(self.decoders):
             x = decoder(x)
             # 跳跃连接
-            if i + 1 < len(encoder_features):
-                x = torch.cat([x, encoder_features[i + 1]], dim=1)
+            if i < len(encoder_features):
+                x = torch.cat([x, encoder_features[i]], dim=1)
         
         x = self.final_upsample(x)
         x = self.final_conv(x)
