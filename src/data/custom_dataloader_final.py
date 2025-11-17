@@ -48,21 +48,39 @@ class CustomMIDatasetFinal(Dataset):
         self.slice_index = self._build_slice_index()
         
     def _build_slice_index(self) -> List[Tuple[str, str]]:
-        """遍历所有case和slice，构建 (case_id, slice_id) 索引"""
+        """遍历所有case和slice，只选择完整匹配的slice（5个文件都存在）"""
         index = []
+        skipped_count = 0
+        
         for case_id in self.case_list:
             cmr_dir = self.data_root / 'images' / 'cmr' / case_id
             if not cmr_dir.exists():
                 print(f"Warning: CMR directory not found for {case_id}")
                 continue
             
-            # 获取所有切片文件并排序
+            # 获取所有CMR切片文件并排序
             slice_files = sorted(cmr_dir.glob('*.nii.gz'))
             for slice_file in slice_files:
                 slice_id = slice_file.stem.replace('.nii', '')  # 去除.nii.gz后缀
-                index.append((case_id, slice_id))
+                
+                # 检查该slice的所有必需文件是否存在
+                required_files = [
+                    self.data_root / 'images' / 'cmr' / case_id / f'{slice_id}.nii.gz',
+                    self.data_root / 'images' / 'lge' / case_id / f'{slice_id}.nii.gz',
+                    self.data_root / 'labels' / 'cmr' / 'cmr_Myo_mask' / case_id / f'{slice_id}.nii.gz',
+                    self.data_root / 'labels' / 'lge_original' / 'lge_Myo_labels' / case_id / f'{slice_id}.nii.gz',
+                    self.data_root / 'labels' / 'lge_original' / 'lge_MI_labels' / case_id / f'{slice_id}.nii.gz',
+                ]
+                
+                # 只有所有文件都存在时才加入索引
+                if all(f.exists() for f in required_files):
+                    index.append((case_id, slice_id))
+                else:
+                    skipped_count += 1
         
-        print(f"Found {len(index)} slices across {len(self.case_list)} cases.")
+        print(f"Found {len(index)} complete slices across {len(self.case_list)} cases.")
+        if skipped_count > 0:
+            print(f"Skipped {skipped_count} incomplete slices (missing files).")
         return index
 
     def __len__(self):

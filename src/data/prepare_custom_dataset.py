@@ -66,7 +66,9 @@ def validate_case(data_root: Path, case_id: str) -> Dict:
         'errors': [],
         'warnings': [],
         'files': {},
-        'slice_count': 0
+        'slice_count': 0,
+        'complete_slice_count': 0,
+        'incomplete_slice_count': 0
     }
     
     # 检查CMR序列目录
@@ -89,34 +91,29 @@ def validate_case(data_root: Path, case_id: str) -> Dict:
     
     # 验证每个切片的配套文件
     slice_ids = [s.stem.replace('.nii', '') for s in cmr_slices]
-    missing_files = []
     
     for slice_id in slice_ids:
-        # 检查LGE图像
-        lge_file = data_root / 'images' / 'lge' / case_id / f'{slice_id}.nii.gz'
-        if not check_file_exists(lge_file):
-            missing_files.append(f"LGE: {slice_id}")
+        # 检查该slice的所有必需文件
+        required_files = [
+            data_root / 'images' / 'cmr' / case_id / f'{slice_id}.nii.gz',
+            data_root / 'images' / 'lge' / case_id / f'{slice_id}.nii.gz',
+            data_root / 'labels' / 'cmr' / 'cmr_Myo_mask' / case_id / f'{slice_id}.nii.gz',
+            data_root / 'labels' / 'lge_original' / 'lge_Myo_labels' / case_id / f'{slice_id}.nii.gz',
+            data_root / 'labels' / 'lge_original' / 'lge_MI_labels' / case_id / f'{slice_id}.nii.gz',
+        ]
         
-        # 检查CMR心肌掩模
-        cmr_mask_file = data_root / 'labels' / 'cmr' / 'cmr_Myo_mask' / case_id / f'{slice_id}.nii.gz'
-        if not check_file_exists(cmr_mask_file):
-            missing_files.append(f"CMR mask: {slice_id}")
-        
-        # 检查LGE心肌掩模
-        lge_myo_file = data_root / 'labels' / 'lge_original' / 'lge_Myo_labels' / case_id / f'{slice_id}.nii.gz'
-        if not check_file_exists(lge_myo_file):
-            missing_files.append(f"LGE myo mask: {slice_id}")
-        
-        # 检查心梗标签
-        mi_file = data_root / 'labels' / 'lge_original' / 'lge_MI_labels' / case_id / f'{slice_id}.nii.gz'
-        if not check_file_exists(mi_file):
-            missing_files.append(f"MI label: {slice_id}")
+        # 统计完整和不完整的slice
+        if all(check_file_exists(f) for f in required_files):
+            result['complete_slice_count'] += 1
+        else:
+            result['incomplete_slice_count'] += 1
     
-    if missing_files:
+    # 只要有完整的slice，就认为case有效
+    if result['complete_slice_count'] == 0:
         result['valid'] = False
-        result['errors'].append(f"Missing files: {', '.join(missing_files[:5])}")
-        if len(missing_files) > 5:
-            result['errors'].append(f"... and {len(missing_files) - 5} more")
+        result['errors'].append(f"No complete slices found (all {result['incomplete_slice_count']} slices have missing files)")
+    elif result['incomplete_slice_count'] > 0:
+        result['warnings'].append(f"{result['incomplete_slice_count']} incomplete slices will be skipped during training")
     
     # 检查第一个切片的数据格式
     if cmr_slices:
@@ -182,7 +179,12 @@ def validate_dataset(data_root: str) -> Tuple[List[str], List[Dict]]:
         
         if result['valid']:
             valid_cases.append(case_id)
-            print(f"  ✓ Valid ({result['slice_count']} slices)")
+            complete = result.get('complete_slice_count', result['slice_count'])
+            incomplete = result.get('incomplete_slice_count', 0)
+            if incomplete > 0:
+                print(f"  ✓ Valid ({complete} complete, {incomplete} incomplete slices)")
+            else:
+                print(f"  ✓ Valid ({complete} slices)")
             if result['warnings']:
                 for warning in result['warnings']:
                     print(f"    ⚠ {warning}")
@@ -206,6 +208,8 @@ def print_summary(valid_cases: List[str], validation_results: List[Dict]):
     print(f"Total cases:   {total_cases}")
     print(f"Valid cases:   {valid_count} ({valid_count/total_cases*100:.1f}%)")
     print(f"Invalid cases: {invalid_count} ({invalid_count/total_cases*100:.1f}%)")
+    print(f"\nNote: Valid cases have at least one complete slice.")
+    print(f"      Incomplete slices will be automatically skipped during training.")
     
     if invalid_count > 0:
         print("\nInvalid cases:")
@@ -216,15 +220,23 @@ def print_summary(valid_cases: List[str], validation_results: List[Dict]):
                     print(f"      {error}")
     
     # 统计切片数
-    slice_counts = [r['slice_count'] for r in validation_results if r['slice_count'] > 0]
-    if slice_counts:
-        total_slices = sum(slice_counts)
+    complete_counts = [r.get('complete_slice_count', 0) for r in validation_results]
+    incomplete_counts = [r.get('incomplete_slice_count', 0) for r in validation_results]
+    total_complete = sum(complete_counts)
+    total_incomplete = sum(incomplete_counts)
+    total_slices = total_complete + total_incomplete
+    
+    if total_slices > 0:
         print(f"\nSlice statistics:")
         print(f"  Total slices: {total_slices}")
-        print(f"  Min per case: {min(slice_counts)}")
-        print(f"  Max per case: {max(slice_counts)}")
-        print(f"  Mean per case: {np.mean(slice_counts):.1f}")
-        print(f"  Median per case: {np.median(slice_counts):.1f}")
+        print(f"  Complete slices: {total_complete} ({total_complete/total_slices*100:.1f}%)")
+        print(f"  Incomplete slices: {total_incomplete} ({total_incomplete/total_slices*100:.1f}%)")
+        if complete_counts:
+            print(f"  Complete slices per case:")
+            print(f"    Min: {min([c for c in complete_counts if c > 0])}")
+            print(f"    Max: {max(complete_counts)}")
+            print(f"    Mean: {np.mean([c for c in complete_counts if c > 0]):.1f}")
+            print(f"    Median: {np.median([c for c in complete_counts if c > 0]):.1f}")
     
     print("="*60)
 
