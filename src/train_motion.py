@@ -15,7 +15,7 @@ from tqdm import tqdm
 sys.path.append(str(Path(__file__).parent.parent))
 
 from src.models.motion_pyramid import MotionPyramidNet
-from src.data.custom_dataloader_final import CMRLGEDataset
+from src.data.custom_dataloader_final import CustomMIDatasetFinal
 
 
 def set_seed(seed):
@@ -113,8 +113,8 @@ def main():
     print(f"Test cases: {len(splits['test'])}")
     
     # 创建数据集
-    train_dataset = CMRLGEDataset(args.data_root, splits['train'])
-    val_dataset = CMRLGEDataset(args.data_root, splits['val'])
+    train_dataset = CustomMIDatasetFinal(args.data_root, splits['train'])
+    val_dataset = CustomMIDatasetFinal(args.data_root, splits['val'])
     
     print(f"Train samples: {len(train_dataset)}")
     print(f"Val samples: {len(val_dataset)}")

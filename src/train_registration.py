@@ -14,8 +14,8 @@ from tqdm import tqdm
 # 添加项目路径
 sys.path.append(str(Path(__file__).parent.parent))
 
-from src.models.voxelmorph_simple import VoxelMorphSimple
-from src.data.custom_dataloader_final import CMRLGEDataset
+from src.models.voxelmorph_simple import VoxelMorph
+from src.data.custom_dataloader_final import CustomMIDatasetFinal
 
 
 def set_seed(seed):
@@ -112,8 +112,8 @@ def main():
     print(f"Val cases: {len(splits['val'])}")
     
     # 创建数据集
-    train_dataset = CMRLGEDataset(args.data_root, splits['train'])
-    val_dataset = CMRLGEDataset(args.data_root, splits['val'])
+    train_dataset = CustomMIDatasetFinal(args.data_root, splits['train'])
+    val_dataset = CustomMIDatasetFinal(args.data_root, splits['val'])
     
     print(f"Train samples: {len(train_dataset)}")
     print(f"Val samples: {len(val_dataset)}")
@@ -135,7 +135,7 @@ def main():
     )
     
     # 创建模型
-    model = VoxelMorphSimple(img_size=(256, 256)).to(device)
+    model = VoxelMorph(img_size=(256, 256)).to(device)
     print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
     
     # 创建优化器
