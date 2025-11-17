@@ -100,7 +100,7 @@ def validate_case(data_root: Path, case_id: str) -> Dict:
             result['errors'].append(f"CMR mask error: {mask_info['error']}")
     
     # 检查LGE心肌掩模
-    lge_myo_file = data_root / 'labels' / 'lge' / 'lge_Myo_labels' / f'{case_id}.nii.gz'
+    lge_myo_file = data_root / 'labels' / 'lge_original' / 'lge_Myo_labels' / f'{case_id}.nii.gz'
     if not check_file_exists(lge_myo_file):
         result['valid'] = False
         result['errors'].append(f"LGE myocardium mask not found: {lge_myo_file}")
@@ -112,7 +112,7 @@ def validate_case(data_root: Path, case_id: str) -> Dict:
             result['errors'].append(f"LGE myo mask error: {mask_info['error']}")
     
     # 检查心梗标签
-    mi_file = data_root / 'labels' / 'lge' / 'lge_MI_labels' / f'{case_id}.nii.gz'
+    mi_file = data_root / 'labels' / 'lge_original' / 'lge_MI_labels' / f'{case_id}.nii.gz'
     if not check_file_exists(mi_file):
         result['valid'] = False
         result['errors'].append(f"MI label not found: {mi_file}")
@@ -143,8 +143,8 @@ def validate_dataset(data_root: str) -> Tuple[List[str], List[Dict]]:
         'images/cmr',
         'images/lge',
         'labels/cmr/cmr_Myo_mask',
-        'labels/lge/lge_MI_labels',
-        'labels/lge/lge_Myo_labels'
+        'labels/lge_original/lge_MI_labels',
+        'labels/lge_original/lge_Myo_labels'
     ]
     
     print("Checking directory structure...")

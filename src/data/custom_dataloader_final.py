@@ -125,14 +125,14 @@ class CustomMIDatasetFinal(Dataset):
                 sample['lge'] = torch.from_numpy(lge_img).unsqueeze(0).float()
 
                 # 4. 加载LGE心肌掩模
-                lge_myo_path = self.data_root / 'labels' / 'lge' / 'lge_Myo_labels' / f'{case_id}.nii.gz'
+                lge_myo_path = self.data_root / 'labels' / 'lge_original' / 'lge_Myo_labels' / f'{case_id}.nii.gz'
                 lge_myo_3d = self._load_nifti(lge_myo_path)
                 lge_myo_mask = lge_myo_3d[:, :, slice_idx]
                 lge_myo_mask = self._resize(lge_myo_mask, is_mask=True)
                 sample['lge_myocardium_mask'] = torch.from_numpy((lge_myo_mask > 0.5).astype(np.float32)).float()
 
                 # 5. 加载心梗标签
-                mi_label_path = self.data_root / 'labels' / 'lge' / 'lge_MI_labels' / f'{case_id}.nii.gz'
+                mi_label_path = self.data_root / 'labels' / 'lge_original' / 'lge_MI_labels' / f'{case_id}.nii.gz'
                 mi_label_3d = self._load_nifti(mi_label_path)
                 infarct_mask = mi_label_3d[:, :, slice_idx]
                 infarct_mask = self._resize(infarct_mask, is_mask=True)
@@ -190,8 +190,8 @@ if __name__ == '__main__':
     (dummy_root / 'images' / 'cmr' / case_id).mkdir(parents=True, exist_ok=True)
     (dummy_root / 'images' / 'lge' / case_id).mkdir(parents=True, exist_ok=True)
     (dummy_root / 'labels' / 'cmr' / 'cmr_Myo_mask').mkdir(parents=True, exist_ok=True)
-    (dummy_root / 'labels' / 'lge' / 'lge_MI_labels').mkdir(parents=True, exist_ok=True)
-    (dummy_root / 'labels' / 'lge' / 'lge_Myo_labels').mkdir(parents=True, exist_ok=True)
+    (dummy_root / 'labels' / 'lge_original' / 'lge_MI_labels').mkdir(parents=True, exist_ok=True)
+    (dummy_root / 'labels' / 'lge_original' / 'lge_Myo_labels').mkdir(parents=True, exist_ok=True)
 
     # 创建模拟文件
     cmr_data = np.random.rand(5, 128, 128) # T=5, H=128, W=128
@@ -201,8 +201,8 @@ if __name__ == '__main__':
     nib.save(nib.Nifti1Image(cmr_data, np.eye(4)), dummy_root / 'images' / 'cmr' / case_id / f'{slice_id}.nii.gz')
     nib.save(nib.Nifti1Image(lge_data, np.eye(4)), dummy_root / 'images' / 'lge' / case_id / f'{slice_id}.nii.gz')
     nib.save(nib.Nifti1Image(mask_data, np.eye(4)), dummy_root / 'labels' / 'cmr' / 'cmr_Myo_mask' / f'{case_id}.nii.gz')
-    nib.save(nib.Nifti1Image(mask_data, np.eye(4)), dummy_root / 'labels' / 'lge' / 'lge_MI_labels' / f'{case_id}.nii.gz')
-    nib.save(nib.Nifti1Image(mask_data, np.eye(4)), dummy_root / 'labels' / 'lge' / 'lge_Myo_labels' / f'{case_id}.nii.gz')
+    nib.save(nib.Nifti1Image(mask_data, np.eye(4)), dummy_root / 'labels' / 'lge_original' / 'lge_MI_labels' / f'{case_id}.nii.gz')
+    nib.save(nib.Nifti1Image(mask_data, np.eye(4)), dummy_root / 'labels' / 'lge_original' / 'lge_Myo_labels' / f'{case_id}.nii.gz')
     print("Dummy dataset created.")
 
     # --- 测试数据加载器 ---
