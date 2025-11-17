@@ -1,7 +1,14 @@
 """
-数据集准备和验证脚本
+数据集准备和验证脚本 (v2)
 
 用于验证用户数据集的完整性和格式正确性
+
+数据结构 (所有数据都是 case/slice 两级目录):
+- CMR图像: images/cmr/<case_id>/<slice_id>.nii.gz
+- LGE图像: images/lge/<case_id>/<slice_id>.nii.gz
+- CMR心肌掩码: labels/cmr/cmr_Myo_mask/<case_id>/<slice_id>.nii.gz
+- LGE心肌掩码: labels/lge_original/lge_Myo_labels/<case_id>/<slice_id>.nii.gz
+- 心梗标签: labels/lge_original/lge_MI_labels/<case_id>/<slice_id>.nii.gz
 """
 
 import argparse
@@ -58,7 +65,8 @@ def validate_case(data_root: Path, case_id: str) -> Dict:
         'valid': True,
         'errors': [],
         'warnings': [],
-        'files': {}
+        'files': {},
+        'slice_count': 0
     }
     
     # 检查CMR序列目录
@@ -66,62 +74,61 @@ def validate_case(data_root: Path, case_id: str) -> Dict:
     if not cmr_dir.exists():
         result['valid'] = False
         result['errors'].append(f"CMR directory not found: {cmr_dir}")
-    else:
-        cmr_files = list(cmr_dir.glob('*.nii.gz'))
-        result['files']['cmr_frames'] = len(cmr_files)
-        if len(cmr_files) == 0:
-            result['valid'] = False
-            result['errors'].append("No CMR frames found")
-        elif len(cmr_files) < 10:
-            result['warnings'].append(f"Only {len(cmr_files)} CMR frames (expected 20-40)")
+        return result
     
-    # 检查LGE图像
-    lge_file = data_root / 'images' / 'lge' / f'{case_id}.nii.gz'
-    if not check_file_exists(lge_file):
-        result['valid'] = False
-        result['errors'].append(f"LGE image not found: {lge_file}")
-    else:
-        lge_info = check_nifti_file(lge_file)
-        result['files']['lge'] = lge_info
-        if lge_info.get('error'):
-            result['valid'] = False
-            result['errors'].append(f"LGE file error: {lge_info['error']}")
+    # 获取CMR切片列表
+    cmr_slices = sorted(list(cmr_dir.glob('*.nii.gz')))
+    result['slice_count'] = len(cmr_slices)
     
-    # 检查CMR心肌掩模
-    cmr_mask_file = data_root / 'labels' / 'cmr' / 'cmr_Myo_mask' / f'{case_id}.nii.gz'
-    if not check_file_exists(cmr_mask_file):
+    if len(cmr_slices) == 0:
         result['valid'] = False
-        result['errors'].append(f"CMR myocardium mask not found: {cmr_mask_file}")
-    else:
-        mask_info = check_nifti_file(cmr_mask_file)
-        result['files']['cmr_myo_mask'] = mask_info
-        if mask_info.get('error'):
-            result['valid'] = False
-            result['errors'].append(f"CMR mask error: {mask_info['error']}")
+        result['errors'].append("No CMR slices found")
+        return result
+    elif len(cmr_slices) < 5:
+        result['warnings'].append(f"Only {len(cmr_slices)} CMR slices (expected 10-20)")
     
-    # 检查LGE心肌掩模
-    lge_myo_file = data_root / 'labels' / 'lge_original' / 'lge_Myo_labels' / f'{case_id}.nii.gz'
-    if not check_file_exists(lge_myo_file):
-        result['valid'] = False
-        result['errors'].append(f"LGE myocardium mask not found: {lge_myo_file}")
-    else:
-        mask_info = check_nifti_file(lge_myo_file)
-        result['files']['lge_myo_mask'] = mask_info
-        if mask_info.get('error'):
-            result['valid'] = False
-            result['errors'].append(f"LGE myo mask error: {mask_info['error']}")
+    # 验证每个切片的配套文件
+    slice_ids = [s.stem.replace('.nii', '') for s in cmr_slices]
+    missing_files = []
     
-    # 检查心梗标签
-    mi_file = data_root / 'labels' / 'lge_original' / 'lge_MI_labels' / f'{case_id}.nii.gz'
-    if not check_file_exists(mi_file):
+    for slice_id in slice_ids:
+        # 检查LGE图像
+        lge_file = data_root / 'images' / 'lge' / case_id / f'{slice_id}.nii.gz'
+        if not check_file_exists(lge_file):
+            missing_files.append(f"LGE: {slice_id}")
+        
+        # 检查CMR心肌掩模
+        cmr_mask_file = data_root / 'labels' / 'cmr' / 'cmr_Myo_mask' / case_id / f'{slice_id}.nii.gz'
+        if not check_file_exists(cmr_mask_file):
+            missing_files.append(f"CMR mask: {slice_id}")
+        
+        # 检查LGE心肌掩模
+        lge_myo_file = data_root / 'labels' / 'lge_original' / 'lge_Myo_labels' / case_id / f'{slice_id}.nii.gz'
+        if not check_file_exists(lge_myo_file):
+            missing_files.append(f"LGE myo mask: {slice_id}")
+        
+        # 检查心梗标签
+        mi_file = data_root / 'labels' / 'lge_original' / 'lge_MI_labels' / case_id / f'{slice_id}.nii.gz'
+        if not check_file_exists(mi_file):
+            missing_files.append(f"MI label: {slice_id}")
+    
+    if missing_files:
         result['valid'] = False
-        result['errors'].append(f"MI label not found: {mi_file}")
-    else:
-        mi_info = check_nifti_file(mi_file)
-        result['files']['mi_label'] = mi_info
-        if mi_info.get('error'):
+        result['errors'].append(f"Missing files: {', '.join(missing_files[:5])}")
+        if len(missing_files) > 5:
+            result['errors'].append(f"... and {len(missing_files) - 5} more")
+    
+    # 检查第一个切片的数据格式
+    if cmr_slices:
+        first_slice = slice_ids[0]
+        cmr_info = check_nifti_file(data_root / 'images' / 'cmr' / case_id / f'{first_slice}.nii.gz')
+        result['files']['cmr_example'] = cmr_info
+        
+        if cmr_info.get('error'):
             result['valid'] = False
-            result['errors'].append(f"MI label error: {mi_info['error']}")
+            result['errors'].append(f"CMR file error: {cmr_info['error']}")
+        elif len(cmr_info['shape']) < 3:
+            result['warnings'].append(f"CMR shape {cmr_info['shape']} - expected 3D (T, H, W)")
     
     return result
 
@@ -175,7 +182,7 @@ def validate_dataset(data_root: str) -> Tuple[List[str], List[Dict]]:
         
         if result['valid']:
             valid_cases.append(case_id)
-            print(f"  ✓ Valid")
+            print(f"  ✓ Valid ({result['slice_count']} slices)")
             if result['warnings']:
                 for warning in result['warnings']:
                     print(f"    ⚠ {warning}")
@@ -208,15 +215,16 @@ def print_summary(valid_cases: List[str], validation_results: List[Dict]):
                 for error in result['errors'][:2]:  # 只显示前2个错误
                     print(f"      {error}")
     
-    # 统计CMR帧数
-    frame_counts = [r['files'].get('cmr_frames', 0) for r in validation_results 
-                    if 'cmr_frames' in r['files']]
-    if frame_counts:
-        print(f"\nCMR frames statistics:")
-        print(f"  Min:    {min(frame_counts)}")
-        print(f"  Max:    {max(frame_counts)}")
-        print(f"  Mean:   {np.mean(frame_counts):.1f}")
-        print(f"  Median: {np.median(frame_counts):.1f}")
+    # 统计切片数
+    slice_counts = [r['slice_count'] for r in validation_results if r['slice_count'] > 0]
+    if slice_counts:
+        total_slices = sum(slice_counts)
+        print(f"\nSlice statistics:")
+        print(f"  Total slices: {total_slices}")
+        print(f"  Min per case: {min(slice_counts)}")
+        print(f"  Max per case: {max(slice_counts)}")
+        print(f"  Mean per case: {np.mean(slice_counts):.1f}")
+        print(f"  Median per case: {np.median(slice_counts):.1f}")
     
     print("="*60)
 

@@ -1,17 +1,19 @@
 """
-自定义数据加载器 - 最终版 (v3)
+自定义数据加载器 - 最终版 (v4)
 
-根据用户最终澄清的数据结构进行适配。
+根据用户最终确认的数据结构进行适配。
 
-### 数据结构:
-- **CMR**: `images/cmr/<case_id>/<slice_id>.nii.gz` (多帧, T>1)
-- **LGE**: `images/lge/<case_id>/<slice_id>.nii.gz` (单帧, T=1)
-- **Masks**: `labels/.../<case_id>.nii.gz` (3D体积, 包含所有切片)
+### 数据结构 (所有数据都是 case/slice 两级目录):
+- **CMR图像**: `images/cmr/<case_id>/<slice_id>.nii.gz` (多帧, T>1)
+- **LGE图像**: `images/lge/<case_id>/<slice_id>.nii.gz` (单帧, T=1)
+- **CMR心肌掩码**: `labels/cmr/cmr_Myo_mask/<case_id>/<slice_id>.nii.gz` (2D)
+- **LGE心肌掩码**: `labels/lge_original/lge_Myo_labels/<case_id>/<slice_id>.nii.gz` (2D)
+- **心梗标签**: `labels/lge_original/lge_MI_labels/<case_id>/<slice_id>.nii.gz` (2D)
 
 ### 核心逻辑:
-1.  以 **切片 (slice)** 为单位构建数据集，而不是以病例 (case) 为单位。
-2.  在 `__init__` 中遍历所有病例和切片，构建一个包含 `(case_id, slice_id)` 的索引列表。
-3.  在 `__getitem__` 中，根据索引加载对应的CMR多帧序列、LGE单帧图像，并从3D Mask体积中提取出当前切片对应的2D掩码。
+1. 以 **切片 (slice)** 为单位构建数据集
+2. 在 `__init__` 中遍历所有case和slice，构建 `(case_id, slice_id)` 索引
+3. 在 `__getitem__` 中，直接加载对应的切片文件（不需要从3D体积中提取）
 """
 
 import os
@@ -25,7 +27,7 @@ from typing import Dict, List, Tuple, Optional
 
 class CustomMIDatasetFinal(Dataset):
     """
-    自定义心梗数据集加载器 (v3 - Final)
+    自定义心梗数据集加载器 (v4 - Final)
     """
     
     def __init__(
@@ -45,19 +47,20 @@ class CustomMIDatasetFinal(Dataset):
         # 构建切片索引
         self.slice_index = self._build_slice_index()
         
-    def _build_slice_index(self) -> List[Tuple[str, str, int]]:
-        """遍历所有病例和切片，构建 (case_id, slice_id, slice_idx) 索引"""
+    def _build_slice_index(self) -> List[Tuple[str, str]]:
+        """遍历所有case和slice，构建 (case_id, slice_id) 索引"""
         index = []
         for case_id in self.case_list:
             cmr_dir = self.data_root / 'images' / 'cmr' / case_id
             if not cmr_dir.exists():
+                print(f"Warning: CMR directory not found for {case_id}")
                 continue
             
             # 获取所有切片文件并排序
             slice_files = sorted(cmr_dir.glob('*.nii.gz'))
-            for i, slice_file in enumerate(slice_files):
-                slice_id = slice_file.name.replace('.nii.gz', '')  # e.g., 'slice_01'
-                index.append((case_id, slice_id, i))
+            for slice_file in slice_files:
+                slice_id = slice_file.stem.replace('.nii', '')  # 去除.nii.gz后缀
+                index.append((case_id, slice_id))
         
         print(f"Found {len(index)} slices across {len(self.case_list)} cases.")
         return index
@@ -85,10 +88,10 @@ class CustomMIDatasetFinal(Dataset):
         """归一化到[0, 1]"""
         img = img.astype(np.float32)
         min_val, max_val = img.min(), img.max()
-        return (img - min_val) / (max_val - min_val) if max_val > min_val else img
+        return (img - min_val) / (max_val - min_val + 1e-8)
 
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
-        case_id, slice_id, slice_idx = self.slice_index[idx]
+        case_id, slice_id = self.slice_index[idx]
         
         try:
             # 1. 加载CMR多帧序列 (T, H, W)
@@ -102,10 +105,9 @@ class CustomMIDatasetFinal(Dataset):
             cine_ed = cmr_seq[0]      # (H, W)
             cine_es = cmr_seq[T // 2] # (H, W)
             
-            # 2. 加载CMR心肌掩模 (从3D体积中提取2D切片)
-            cmr_mask_path = self.data_root / 'labels' / 'cmr' / 'cmr_Myo_mask' / f'{case_id}.nii.gz'
-            cmr_mask_3d = self._load_nifti(cmr_mask_path)
-            myocardium_mask = cmr_mask_3d[:, :, slice_idx]
+            # 2. 加载CMR心肌掩模 (2D切片)
+            cmr_mask_path = self.data_root / 'labels' / 'cmr' / 'cmr_Myo_mask' / case_id / f'{slice_id}.nii.gz'
+            myocardium_mask = self._load_nifti(cmr_mask_path).squeeze()
             myocardium_mask = self._resize(myocardium_mask, is_mask=True)
             myocardium_mask = (myocardium_mask > 0.5).astype(np.float32)
 
@@ -119,22 +121,20 @@ class CustomMIDatasetFinal(Dataset):
             if self.mode in ['registration', 'segmentation']:
                 # 3. 加载LGE单帧图像
                 lge_path = self.data_root / 'images' / 'lge' / case_id / f'{slice_id}.nii.gz'
-                lge_img = self._load_nifti(lge_path).squeeze() # 确保是2D
+                lge_img = self._load_nifti(lge_path).squeeze()  # 确保是2D
                 lge_img = self._resize(lge_img)
                 lge_img = self._normalize(lge_img)
                 sample['lge'] = torch.from_numpy(lge_img).unsqueeze(0).float()
 
-                # 4. 加载LGE心肌掩模
-                lge_myo_path = self.data_root / 'labels' / 'lge_original' / 'lge_Myo_labels' / f'{case_id}.nii.gz'
-                lge_myo_3d = self._load_nifti(lge_myo_path)
-                lge_myo_mask = lge_myo_3d[:, :, slice_idx]
+                # 4. 加载LGE心肌掩模 (2D切片)
+                lge_myo_path = self.data_root / 'labels' / 'lge_original' / 'lge_Myo_labels' / case_id / f'{slice_id}.nii.gz'
+                lge_myo_mask = self._load_nifti(lge_myo_path).squeeze()
                 lge_myo_mask = self._resize(lge_myo_mask, is_mask=True)
                 sample['lge_myocardium_mask'] = torch.from_numpy((lge_myo_mask > 0.5).astype(np.float32)).float()
 
-                # 5. 加载心梗标签
-                mi_label_path = self.data_root / 'labels' / 'lge_original' / 'lge_MI_labels' / f'{case_id}.nii.gz'
-                mi_label_3d = self._load_nifti(mi_label_path)
-                infarct_mask = mi_label_3d[:, :, slice_idx]
+                # 5. 加载心梗标签 (2D切片)
+                mi_label_path = self.data_root / 'labels' / 'lge_original' / 'lge_MI_labels' / case_id / f'{slice_id}.nii.gz'
+                infarct_mask = self._load_nifti(mi_label_path).squeeze()
                 infarct_mask = self._resize(infarct_mask, is_mask=True)
                 sample['infarct_mask'] = torch.from_numpy((infarct_mask > 0.5).astype(np.float32)).float()
 
@@ -145,12 +145,11 @@ class CustomMIDatasetFinal(Dataset):
 
         except Exception as e:
             print(f"Error loading slice {case_id}/{slice_id}: {e}")
-            # 返回一个空的或占位的样本，或者可以跳过
             return None
 
 
 def collate_fn(batch):
-    """自定义collate_fn以过滤掉加载失败的样本 (返回None的)"""
+    """自定义collate_fn以过滤掉加载失败的样本"""
     batch = [b for b in batch if b is not None]
     if not batch:
         return None
@@ -167,6 +166,7 @@ def get_custom_dataloader_final(
     num_workers: int = 4,
     transform=None
 ) -> DataLoader:
+    """创建数据加载器"""
     dataset = CustomMIDatasetFinal(
         data_root=data_root,
         case_list=case_list,
@@ -183,26 +183,26 @@ def get_custom_dataloader_final(
 if __name__ == '__main__':
     # --- 创建模拟数据集 ---
     print("Creating dummy dataset for testing...")
-    dummy_root = Path('dummy_data_final')
-    case_id, slice_id, slice_idx = 'case1', 'slice_01', 0
+    dummy_root = Path('dummy_data_v4')
+    case_id, slice_id = 'case001', 'slice_01'
     
-    # 创建目录
+    # 创建目录结构（所有都是case/slice两级）
     (dummy_root / 'images' / 'cmr' / case_id).mkdir(parents=True, exist_ok=True)
     (dummy_root / 'images' / 'lge' / case_id).mkdir(parents=True, exist_ok=True)
-    (dummy_root / 'labels' / 'cmr' / 'cmr_Myo_mask').mkdir(parents=True, exist_ok=True)
-    (dummy_root / 'labels' / 'lge_original' / 'lge_MI_labels').mkdir(parents=True, exist_ok=True)
-    (dummy_root / 'labels' / 'lge_original' / 'lge_Myo_labels').mkdir(parents=True, exist_ok=True)
+    (dummy_root / 'labels' / 'cmr' / 'cmr_Myo_mask' / case_id).mkdir(parents=True, exist_ok=True)
+    (dummy_root / 'labels' / 'lge_original' / 'lge_MI_labels' / case_id).mkdir(parents=True, exist_ok=True)
+    (dummy_root / 'labels' / 'lge_original' / 'lge_Myo_labels' / case_id).mkdir(parents=True, exist_ok=True)
 
     # 创建模拟文件
-    cmr_data = np.random.rand(5, 128, 128) # T=5, H=128, W=128
-    lge_data = np.random.rand(1, 128, 128) # T=1, H=128, W=128
-    mask_data = np.random.randint(0, 2, size=(128, 128, 10)).astype(np.float32) # H, W, D=10
+    cmr_data = np.random.rand(25, 128, 128)  # T=25, H=128, W=128
+    lge_data = np.random.rand(128, 128)      # H=128, W=128 (2D)
+    mask_data = np.random.randint(0, 2, size=(128, 128)).astype(np.float32)  # 2D mask
 
     nib.save(nib.Nifti1Image(cmr_data, np.eye(4)), dummy_root / 'images' / 'cmr' / case_id / f'{slice_id}.nii.gz')
     nib.save(nib.Nifti1Image(lge_data, np.eye(4)), dummy_root / 'images' / 'lge' / case_id / f'{slice_id}.nii.gz')
-    nib.save(nib.Nifti1Image(mask_data, np.eye(4)), dummy_root / 'labels' / 'cmr' / 'cmr_Myo_mask' / f'{case_id}.nii.gz')
-    nib.save(nib.Nifti1Image(mask_data, np.eye(4)), dummy_root / 'labels' / 'lge_original' / 'lge_MI_labels' / f'{case_id}.nii.gz')
-    nib.save(nib.Nifti1Image(mask_data, np.eye(4)), dummy_root / 'labels' / 'lge_original' / 'lge_Myo_labels' / f'{case_id}.nii.gz')
+    nib.save(nib.Nifti1Image(mask_data, np.eye(4)), dummy_root / 'labels' / 'cmr' / 'cmr_Myo_mask' / case_id / f'{slice_id}.nii.gz')
+    nib.save(nib.Nifti1Image(mask_data, np.eye(4)), dummy_root / 'labels' / 'lge_original' / 'lge_MI_labels' / case_id / f'{slice_id}.nii.gz')
+    nib.save(nib.Nifti1Image(mask_data, np.eye(4)), dummy_root / 'labels' / 'lge_original' / 'lge_Myo_labels' / case_id / f'{slice_id}.nii.gz')
     print("Dummy dataset created.")
 
     # --- 测试数据加载器 ---
