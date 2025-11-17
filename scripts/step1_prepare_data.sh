@@ -39,8 +39,7 @@ cd "$PROJECT_ROOT"
 # 1. 验证数据集结构
 echo -e "\n${GREEN}[1/3] 验证数据集结构...${NC}"
 python3 src/data/prepare_custom_dataset.py \
-    --data_root "$DATA_ROOT" \
-    --check_only
+    --data_root "$DATA_ROOT"
 
 if [ $? -ne 0 ]; then
     echo -e "${RED}数据集结构验证失败！请检查数据集格式。${NC}"
