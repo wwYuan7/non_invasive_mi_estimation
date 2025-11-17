@@ -52,7 +52,7 @@ echo -e "${GREEN}✓ 数据集结构验证通过${NC}"
 echo -e "\n${GREEN}[2/3] 生成训练/验证/测试集划分...${NC}"
 python3 src/data/split_dataset.py \
     --data_root "$DATA_ROOT" \
-    --splits_file data/splits/dataset_splits.json \
+    --output_dir "${PROJECT_ROOT}/data/splits" \
     --train_ratio 0.7 \
     --val_ratio 0.15 \
     --test_ratio 0.15 \
