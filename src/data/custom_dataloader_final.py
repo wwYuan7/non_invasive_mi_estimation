@@ -131,6 +131,7 @@ class CustomMIDatasetFinal(Dataset):
 
             sample = {
                 'case_id': f"{case_id}_{slice_id}",
+                'cmr': torch.from_numpy(cmr_seq).float(),  # 完整序列 (T, H, W)
                 'cine_ed': torch.from_numpy(cine_ed).unsqueeze(0).float(),
                 'cine_es': torch.from_numpy(cine_es).unsqueeze(0).float(),
                 'myocardium_mask': torch.from_numpy(myocardium_mask).float(),
@@ -154,7 +155,9 @@ class CustomMIDatasetFinal(Dataset):
                 mi_label_path = self.data_root / 'labels' / 'lge_original' / 'lge_MI_labels' / case_id / f'{slice_id}.nii.gz'
                 infarct_mask = self._load_nifti(mi_label_path).squeeze()
                 infarct_mask = self._resize(infarct_mask, is_mask=True)
-                sample['infarct_mask'] = torch.from_numpy((infarct_mask > 0.5).astype(np.float32)).float()
+                mi_label_tensor = torch.from_numpy((infarct_mask > 0.5).astype(np.float32)).float()
+                sample['infarct_mask'] = mi_label_tensor
+                sample['mi_label'] = mi_label_tensor  # 别名
 
             if self.transform:
                 sample = self.transform(sample)
